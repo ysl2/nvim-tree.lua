@@ -27,6 +27,9 @@ local function refactored(opts)
 
   -- 2023/01/01
   utils.move_missing_val(opts, "update_focused_file", "debounce_delay", opts, "view", "debounce_delay", true)
+
+  -- 2023/01/06
+  utils.move_missing_val(opts, "renderer", "highlight_opened_files", opts, "renderer", "highlight_opened", true)
 end
 
 local function removed(opts)
