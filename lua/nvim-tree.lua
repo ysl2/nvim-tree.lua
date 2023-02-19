@@ -389,6 +389,26 @@ function M.change_dir(name)
   end
 end
 
+--- Reload when no buffer filter is active.
+--- Redraw when highlighting opened files.
+--- Does nothing when no buftype.
+--- @param bufnr number active
+--- @param unloaded boolean bufnr has been unloaded
+--- @param debounce_delay number for reload
+local function reload_or_redraw(bufnr, unloaded, debounce_delay)
+  if vim.bo[bufnr].buftype == "" then
+    if filters.config.filter_no_buffer then
+      -- reload to reapply filters
+      utils.debounce("Buf:filter_buffer", debounce_delay, function()
+        reloaders.reload_explorer()
+      end)
+    elseif renderer.config.highlight_opened_files ~= "none" then
+      -- update opened file buffer highlighting
+      require("nvim-tree.renderer").draw(unloaded and bufnr or nil)
+    end
+  end
+end
+
 local function setup_autocommands(opts)
   local augroup_id = vim.api.nvim_create_augroup("NvimTree", { clear = true })
   local function create_nvim_tree_autocmd(name, custom_opts)
@@ -417,29 +437,13 @@ local function setup_autocommands(opts)
 
   create_nvim_tree_autocmd("BufReadPost", {
     callback = function(data)
-      -- update opened file buffers
-      if
-        (filters.config.filter_no_buffer or renderer.config.highlight_opened_files ~= "none")
-        and vim.bo[data.buf].buftype == ""
-      then
-        utils.debounce("Buf:filter_buffer", opts.view.debounce_delay, function()
-          reloaders.reload_explorer()
-        end)
-      end
+      reload_or_redraw(data.buf, false, opts.view.debounce_delay)
     end,
   })
 
   create_nvim_tree_autocmd("BufUnload", {
     callback = function(data)
-      -- update opened file buffers
-      if
-        (filters.config.filter_no_buffer or renderer.config.highlight_opened_files ~= "none")
-        and vim.bo[data.buf].buftype == ""
-      then
-        utils.debounce("Buf:filter_buffer", opts.view.debounce_delay, function()
-          reloaders.reload_explorer(nil, data.buf)
-        end)
-      end
+      reload_or_redraw(data.buf, true, opts.view.debounce_delay)
     end,
   })
 
