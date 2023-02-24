@@ -466,7 +466,9 @@ local function setup_autocommands(opts)
   if opts.sync_root_with_cwd then
     create_nvim_tree_autocmd("DirChanged", {
       callback = function()
+        print('[tree] detected DirChanged, change dir (pre)')
         M.change_dir(vim.loop.cwd())
+        print('[tree] detected DirChanged, change dir (end)')
       end,
     })
   end
