@@ -1,8 +1,13 @@
-local M = {}
-
 local events = require "nvim-tree.events"
 local utils = require "nvim-tree.utils"
 local log = require "nvim-tree.log"
+
+---@class OpenInWinOpts
+---@field hijack_current_buf boolean|nil default true
+---@field resize boolean|nil default true
+---@field winid number|nil 0 or nil for current
+
+local M = {}
 
 local DEFAULT_MIN_WIDTH = 30
 local DEFAULT_MAX_WIDTH = -1
@@ -14,6 +19,9 @@ M.View = {
   tabpages = {},
   cursors = {},
   hide_root_folder = false,
+  live_filter = {
+    prev_focused_node = nil,
+  },
   winopts = {
     relativenumber = false,
     number = false,
@@ -32,7 +40,6 @@ M.View = {
     wrap = false,
     winhl = table.concat({
       "EndOfBuffer:NvimTreeEndOfBuffer",
-      "Normal:NvimTreeNormal",
       "CursorLine:NvimTreeCursorLine",
       "CursorLineNr:NvimTreeCursorLineNr",
       "LineNr:NvimTreeLineNr",
@@ -40,15 +47,15 @@ M.View = {
       "StatusLine:NvimTreeStatusLine",
       "StatusLineNC:NvimTreeStatuslineNC",
       "SignColumn:NvimTreeSignColumn",
+      "Normal:NvimTreeNormal",
       "NormalNC:NvimTreeNormalNC",
+      "NormalFloat:NvimTreeNormalFloat",
     }, ","),
   },
 }
 
 -- The initial state of a tab
 local tabinitial = {
-  -- True if help is displayed
-  help = false,
   -- The position of the cursor { line, column }
   cursor = { 0, 0 },
   -- The NvimTree window number
@@ -93,12 +100,8 @@ local function create_buffer(bufnr)
     vim.bo[M.get_bufnr()][option] = value
   end
 
-  if type(M.on_attach) == "function" then
-    require("nvim-tree.keymap").set_keymaps(M.get_bufnr())
-    M.on_attach(M.get_bufnr())
-  else
-    require("nvim-tree.actions").apply_mappings(M.get_bufnr())
-  end
+  require("nvim-tree.keymap").on_attach(M.get_bufnr())
+
   events._dispatch_tree_attached_post(M.get_bufnr())
 end
 
@@ -327,7 +330,11 @@ function M.resize(size)
   local new_size = get_width()
   vim.api.nvim_win_set_width(M.get_winnr(), new_size)
 
-  events._dispatch_on_tree_resize(new_size)
+  -- TODO #1545 remove similar check from setup_autocommands
+  -- We let nvim handle sending resize events after 0.9
+  if vim.fn.has "nvim-0.9" == 0 then
+    events._dispatch_on_tree_resize(new_size)
+  end
 
   if not M.View.preserve_window_proportions then
     vim.cmd ":wincmd ="
@@ -345,8 +352,13 @@ local function set_current_win()
   M.View.tabpages[current_tab].winnr = vim.api.nvim_get_current_win()
 end
 
-function M.open_in_current_win(opts)
+---Open the tree in the a window
+---@param opts OpenInWinOpts|nil
+function M.open_in_win(opts)
   opts = opts or { hijack_current_buf = true, resize = true }
+  if opts.winid and vim.api.nvim_win_is_valid(opts.winid) then
+    vim.api.nvim_set_current_win(opts.winid)
+  end
   create_buffer(opts.hijack_current_buf and vim.api.nvim_get_current_buf())
   setup_tabpage(vim.api.nvim_get_current_tabpage())
   set_current_win()
@@ -438,22 +450,6 @@ function M.get_bufnr()
   return BUFNR_PER_TAB[vim.api.nvim_get_current_tabpage()]
 end
 
---- Checks if nvim-tree is displaying the help ui within the tabpage specified
----@param tabpage number|nil (optional) the number of the chosen tabpage. Defaults to current tabpage.
----@return number|nil
-function M.is_help_ui(tabpage)
-  tabpage = tabpage or vim.api.nvim_get_current_tabpage()
-  local tabinfo = M.View.tabpages[tabpage]
-  if tabinfo ~= nil then
-    return tabinfo.help
-  end
-end
-
-function M.toggle_help(tabpage)
-  tabpage = tabpage or vim.api.nvim_get_current_tabpage()
-  M.View.tabpages[tabpage].help = not M.View.tabpages[tabpage].help
-end
-
 function M.is_buf_valid(bufnr)
   return bufnr and vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_is_loaded(bufnr)
 end
@@ -517,7 +513,7 @@ function M.setup(opts)
   M.View.centralize_selection = options.centralize_selection
   M.View.side = (options.side == "right") and "right" or "left"
   M.View.height = options.height
-  M.View.hide_root_folder = options.hide_root_folder
+  M.View.hide_root_folder = options.hide_root_folder or opts.renderer.root_folder_label == false
   M.View.tab = opts.tab
   M.View.preserve_window_proportions = options.preserve_window_proportions
   M.View.winopts.cursorline = options.cursorline

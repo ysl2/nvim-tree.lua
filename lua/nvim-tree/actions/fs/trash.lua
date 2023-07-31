@@ -1,7 +1,9 @@
 local lib = require "nvim-tree.lib"
 local notify = require "nvim-tree.notify"
 
-local M = {}
+local M = {
+  config = {},
+}
 
 local utils = require "nvim-tree.utils"
 local events = require "nvim-tree.events"
@@ -28,7 +30,7 @@ function M.fn(node)
   end
 
   -- configs
-  if utils.is_unix then
+  if utils.is_unix or utils.is_windows then
     if M.config.trash.cmd == nil then
       M.config.trash.cmd = "trash"
     end
@@ -53,11 +55,15 @@ function M.fn(node)
 
   -- trashes a path (file or folder)
   local function trash_path(on_exit)
-    vim.fn.jobstart(M.config.trash.cmd .. ' "' .. node.absolute_path .. '"', {
-      detach = true,
+    local need_sync_wait = utils.is_windows
+    local job = vim.fn.jobstart(M.config.trash.cmd .. ' "' .. node.absolute_path .. '"', {
+      detach = not need_sync_wait,
       on_exit = on_exit,
       on_stderr = on_stderr,
     })
+    if need_sync_wait then
+      vim.fn.jobwait { job }
+    end
   end
 
   local function do_trash()
@@ -68,11 +74,12 @@ function M.fn(node)
           return
         end
         events._dispatch_folder_removed(node.absolute_path)
-        if M.enable_reload then
+        if not M.config.filesystem_watchers.enable then
           require("nvim-tree.actions.reloaders.reloaders").reload_explorer()
         end
       end)
     else
+      events._dispatch_will_remove_file(node.absolute_path)
       trash_path(function(_, rc)
         if rc ~= 0 then
           notify.warn("trash failed: " .. err_msg .. "; please see :help nvim-tree.trash")
@@ -80,7 +87,7 @@ function M.fn(node)
         end
         events._dispatch_file_removed(node.absolute_path)
         clear_buffer(node.absolute_path)
-        if M.enable_reload then
+        if not M.config.filesystem_watchers.enable then
           require("nvim-tree.actions.reloaders.reloaders").reload_explorer()
         end
       end)
@@ -102,10 +109,9 @@ function M.fn(node)
 end
 
 function M.setup(opts)
-  M.config = {}
-  M.config.ui = opts.ui or {}
-  M.config.trash = opts.trash or {}
-  M.enable_reload = not opts.filesystem_watchers.enable
+  M.config.ui = opts.ui
+  M.config.trash = opts.trash
+  M.config.filesystem_watchers = opts.filesystem_watchers
 end
 
 return M

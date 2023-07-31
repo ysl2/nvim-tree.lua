@@ -22,36 +22,7 @@ local WATCHED_FILES = {
   "index", -- staging area
 }
 
-function M.reload()
-  if not M.config.git.enable then
-    return {}
-  end
-
-  for project_root in pairs(M.projects) do
-    M.reload_project(project_root)
-  end
-
-  return M.projects
-end
-
-function M.reload_project(project_root, path)
-  local project = M.projects[project_root]
-  if not project or not M.config.git.enable then
-    return
-  end
-
-  if path and path:find(project_root, 1, true) ~= 1 then
-    return
-  end
-
-  local git_status = Runner.run {
-    project_root = project_root,
-    path = path,
-    list_untracked = git_utils.should_show_untracked(project_root),
-    list_ignored = true,
-    timeout = M.config.git.timeout,
-  }
-
+local function reload_git_status(project_root, path, project, git_status)
   if path then
     for p in pairs(project.files) do
       if p:find(path, 1, true) == 1 then
@@ -64,6 +35,73 @@ function M.reload_project(project_root, path)
   end
 
   project.dirs = git_utils.file_status_to_dir_status(project.files, project_root)
+end
+
+--- Is this path in a known ignored directory?
+--- @param path string
+--- @param project table git status
+--- @return boolean
+local function path_ignored_in_project(path, project)
+  if not path or not project then
+    return false
+  end
+
+  if project and project.files then
+    for file, status in pairs(project.files) do
+      if status == "!!" and vim.startswith(path, file) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+function M.reload()
+  if not M.config.git.enable then
+    return {}
+  end
+
+  for project_root in pairs(M.projects) do
+    M.reload_project(project_root)
+  end
+
+  return M.projects
+end
+
+function M.reload_project(project_root, path, callback)
+  local project = M.projects[project_root]
+  if not project or not M.config.git.enable then
+    if callback then
+      callback()
+    end
+    return
+  end
+
+  if path and (path:find(project_root, 1, true) ~= 1 or path_ignored_in_project(path, project)) then
+    if callback then
+      callback()
+    end
+    return
+  end
+
+  local opts = {
+    project_root = project_root,
+    path = path,
+    list_untracked = git_utils.should_show_untracked(project_root),
+    list_ignored = true,
+    timeout = M.config.git.timeout,
+  }
+
+  if callback then
+    Runner.run(opts, function(git_status)
+      reload_git_status(project_root, path, project, git_status)
+      callback()
+    end)
+  else
+    -- TODO use callback once async/await is available
+    local git_status = Runner.run(opts)
+    reload_git_status(project_root, path, project, git_status)
+  end
 end
 
 function M.get_project(project_root)
@@ -88,7 +126,24 @@ function M.get_project_root(cwd)
     return nil
   end
 
-  M.cwd_to_project_root[cwd] = git_utils.get_toplevel(cwd)
+  -- short-circuit any known ignored paths
+  for root, project in pairs(M.projects) do
+    if project and path_ignored_in_project(cwd, project) then
+      M.cwd_to_project_root[cwd] = root
+      return root
+    end
+  end
+
+  local toplevel = git_utils.get_toplevel(cwd)
+  for _, disabled_for_dir in ipairs(M.config.git.disable_for_dirs) do
+    local toplevel_norm = vim.fn.fnamemodify(toplevel, ":p")
+    local disabled_norm = vim.fn.fnamemodify(disabled_for_dir, ":p")
+    if toplevel_norm == disabled_norm then
+      return nil
+    end
+  end
+
+  M.cwd_to_project_root[cwd] = toplevel
   return M.cwd_to_project_root[cwd]
 end
 
@@ -103,21 +158,22 @@ local function reload_tree_at(project_root)
     return
   end
 
-  M.reload_project(project_root)
-  local git_status = M.get_project(project_root)
+  M.reload_project(project_root, nil, function()
+    local git_status = M.get_project(project_root)
 
-  Iterator.builder(root_node.nodes)
-    :hidden()
-    :applier(function(node)
-      local parent_ignored = explorer_node.is_git_ignored(node.parent)
-      explorer_node.update_git_status(node, parent_ignored, git_status)
-    end)
-    :recursor(function(node)
-      return node.nodes and #node.nodes > 0 and node.nodes
-    end)
-    :iterate()
+    Iterator.builder(root_node.nodes)
+      :hidden()
+      :applier(function(node)
+        local parent_ignored = explorer_node.is_git_ignored(node.parent)
+        explorer_node.update_git_status(node, parent_ignored, git_status)
+      end)
+      :recursor(function(node)
+        return node.nodes and #node.nodes > 0 and node.nodes
+      end)
+      :iterate()
 
-  require("nvim-tree.renderer").draw()
+    require("nvim-tree.renderer").draw()
+  end)
 end
 
 function M.load_project_status(cwd)
@@ -157,7 +213,8 @@ function M.load_project_status(cwd)
       end)
     end
 
-    watcher = Watcher:new(utils.path_join { project_root, ".git" }, WATCHED_FILES, callback, {
+    local git_dir = vim.env.GIT_DIR or utils.path_join { project_root, ".git" }
+    watcher = Watcher:new(git_dir, WATCHED_FILES, callback, {
       project_root = project_root,
     })
   end

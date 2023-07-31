@@ -7,7 +7,6 @@ local live_filter = require "nvim-tree.live-filter"
 local git = require "nvim-tree.git"
 local log = require "nvim-tree.log"
 
-local NodeIterator = require "nvim-tree.iterators.node-iterator"
 local Watcher = require "nvim-tree.watcher"
 
 local M = {}
@@ -21,15 +20,17 @@ local function update_status(nodes_by_path, node_ignored, status)
   end
 end
 
-local function reload_and_get_git_project(path)
+local function reload_and_get_git_project(path, callback)
   local project_root = git.get_project_root(path)
-  git.reload_project(project_root, path)
-  return project_root, git.get_project(project_root) or {}
+
+  git.reload_project(project_root, path, function()
+    callback(project_root, git.get_project(project_root) or {})
+  end)
 end
 
 local function update_parent_statuses(node, project, root)
   while project and node and node.absolute_path ~= root do
-    explorer_node.update_git_status(node, false, project)
+    explorer_node.update_git_status(node, explorer_node.is_git_ignored(node.parent), project)
     node = node.parent
   end
 end
@@ -134,7 +135,7 @@ function M.reload(node, git_status, unloaded_bufnr)
     return ns
   end
 
-  sorters.merge_sort(node.nodes, sorters.node_comparator)
+  sorters.sort(node.nodes)
   live_filter.apply_filter(node)
   log.profile_end(profile)
   return node.nodes
@@ -142,56 +143,21 @@ end
 
 ---Refresh contents and git status for a single node
 ---@param node table
-function M.refresh_node(node)
+---@param callback function
+function M.refresh_node(node, callback)
   if type(node) ~= "table" then
-    return
+    callback()
   end
 
   local parent_node = utils.get_parent_of_group(node)
 
-  local project_root, project = reload_and_get_git_project(node.absolute_path)
+  reload_and_get_git_project(node.absolute_path, function(project_root, project)
+    require("nvim-tree.explorer.reload").reload(parent_node, project)
 
-  require("nvim-tree.explorer.reload").reload(parent_node, project)
+    update_parent_statuses(parent_node, project, project_root)
 
-  update_parent_statuses(parent_node, project, project_root)
-end
-
----Refresh contents and git status for all nodes to a path: actual directory and links
----@param path string absolute path
-function M.refresh_nodes_for_path(path)
-  local explorer = require("nvim-tree.core").get_explorer()
-  if not explorer then
-    return
-  end
-
-  local profile = log.profile_start("refresh_nodes_for_path %s", path)
-
-  -- avoids cycles
-  local absolute_paths_refreshed = {}
-
-  NodeIterator.builder({ explorer })
-    :hidden()
-    :recursor(function(node)
-      if node.group_next then
-        return { node.group_next }
-      end
-      if node.nodes then
-        return node.nodes
-      end
-    end)
-    :applier(function(node)
-      local abs_contains = node.absolute_path and path:find(node.absolute_path, 1, true) == 1
-      local link_contains = node.link_to and path:find(node.link_to, 1, true) == 1
-      if abs_contains or link_contains then
-        if not absolute_paths_refreshed[node.absolute_path] then
-          absolute_paths_refreshed[node.absolute_path] = true
-          M.refresh_node(node)
-        end
-      end
-    end)
-    :iterate()
-
-  log.profile_end(profile)
+    callback()
+  end)
 end
 
 function M.setup(opts)

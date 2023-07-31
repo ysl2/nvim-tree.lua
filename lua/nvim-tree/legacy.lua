@@ -41,6 +41,18 @@ local function refactored(opts)
     end
     opts.view.adaptive_size = nil
   end
+
+  -- 2023/07/15
+  utils.move_missing_val(opts, "", "sort_by", opts, "sort", "sorter", true)
+
+  -- 2023/07/16
+  utils.move_missing_val(opts, "git", "ignore", opts, "filters", "git_ignored", true)
+end
+
+local function deprecated(opts)
+  if opts.view and opts.view.hide_root_folder then
+    notify.info "view.hide_root_folder is deprecated, please set renderer.root_folder_label = false"
+  end
 end
 
 local function removed(opts)
@@ -63,6 +75,9 @@ end
 function M.migrate_legacy_options(opts)
   -- silently move
   refactored(opts)
+
+  -- warn
+  deprecated(opts)
 
   -- warn and delete
   removed(opts)
