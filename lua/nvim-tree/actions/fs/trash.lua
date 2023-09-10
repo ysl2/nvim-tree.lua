@@ -29,22 +29,9 @@ function M.fn(node)
     return
   end
 
-  -- configs
-  if utils.is_unix or utils.is_windows then
-    if M.config.trash.cmd == nil then
-      M.config.trash.cmd = "trash"
-    end
-    if M.config.ui.confirm.trash == nil then
-      M.config.ui.confirm.trash = true
-    end
-  else
-    notify.warn "Trash is currently a UNIX only feature!"
-    return
-  end
-
   local binary = M.config.trash.cmd:gsub(" .*$", "")
   if vim.fn.executable(binary) == 0 then
-    notify.warn(binary .. " is not executable.")
+    notify.warn(string.format("trash.cmd '%s' is not an executable.", M.config.trash.cmd))
     return
   end
 
@@ -96,8 +83,8 @@ function M.fn(node)
 
   if M.config.ui.confirm.trash then
     local prompt_select = "Trash " .. node.name .. " ?"
-    local prompt_input = prompt_select .. " y/n: "
-    lib.prompt(prompt_input, prompt_select, { "y", "n" }, { "Yes", "No" }, function(item_short)
+    local prompt_input = prompt_select .. " y/N: "
+    lib.prompt(prompt_input, prompt_select, { "", "y" }, { "No", "Yes" }, function(item_short)
       utils.clear_prompt()
       if item_short == "y" then
         do_trash()

@@ -12,7 +12,6 @@ local reloaders = require "nvim-tree.actions.reloaders.reloaders"
 local git = require "nvim-tree.git"
 local filters = require "nvim-tree.explorer.filters"
 local modified = require "nvim-tree.modified"
-local keymap_legacy = require "nvim-tree.keymap-legacy"
 local find_file = require "nvim-tree.actions.tree.find-file"
 local open = require "nvim-tree.actions.tree.open"
 local events = require "nvim-tree.events"
@@ -374,40 +373,34 @@ local function setup_autocommands(opts)
 end
 
 local DEFAULT_OPTS = { -- BEGIN_DEFAULT_OPTS
+  on_attach = "default",
+  hijack_cursor = false,
   auto_reload_on_write = true,
   disable_netrw = false,
-  hijack_cursor = false,
   hijack_netrw = true,
   hijack_unnamed_buffer_when_opening = false,
-  sort = {
-    sorter = "name",
-    folders_first = true,
-  },
   root_dirs = {},
   prefer_startup_root = false,
   sync_root_with_cwd = false,
   reload_on_bufenter = false,
   respect_buf_cwd = false,
-  on_attach = "default",
-  remove_keymaps = false,
   select_prompts = false,
+  sort = {
+    sorter = "name",
+    folders_first = true,
+    files_first = false,
+  },
   view = {
     centralize_selection = false,
     cursorline = true,
     debounce_delay = 15,
-    width = 30,
     hide_root_folder = false,
     side = "left",
     preserve_window_proportions = false,
     number = false,
     relativenumber = false,
     signcolumn = "yes",
-    mappings = {
-      custom_only = false,
-      list = {
-        -- user mappings go here
-      },
-    },
+    width = 30,
     float = {
       enable = false,
       quit_on_focus_loss = true,
@@ -424,12 +417,15 @@ local DEFAULT_OPTS = { -- BEGIN_DEFAULT_OPTS
   renderer = {
     add_trailing = false,
     group_empty = false,
-    highlight_git = false,
     full_name = false,
-    highlight_opened_files = "none",
-    highlight_modified = "none",
     root_folder_label = ":~:s?$?/..?",
     indent_width = 2,
+    special_files = { "Cargo.toml", "Makefile", "README.md", "readme.md" },
+    symlink_destination = true,
+    highlight_git = false,
+    highlight_diagnostics = false,
+    highlight_opened_files = "none",
+    highlight_modified = "none",
     indent_markers = {
       enable = false,
       inline_arrows = true,
@@ -442,8 +438,18 @@ local DEFAULT_OPTS = { -- BEGIN_DEFAULT_OPTS
       },
     },
     icons = {
-      webdev_colors = true,
+      web_devicons = {
+        file = {
+          enable = true,
+          color = true,
+        },
+        folder = {
+          enable = false,
+          color = true,
+        },
+      },
       git_placement = "before",
+      diagnostics_placement = "signcolumn",
       modified_placement = "after",
       padding = " ",
       symlink_arrow = " ➛ ",
@@ -452,6 +458,7 @@ local DEFAULT_OPTS = { -- BEGIN_DEFAULT_OPTS
         folder = true,
         folder_arrow = true,
         git = true,
+        diagnostics = true,
         modified = true,
       },
       glyphs = {
@@ -480,8 +487,6 @@ local DEFAULT_OPTS = { -- BEGIN_DEFAULT_OPTS
         },
       },
     },
-    special_files = { "Cargo.toml", "Makefile", "README.md", "readme.md" },
-    symlink_destination = true,
   },
   hijack_directories = {
     enable = true,
@@ -495,6 +500,13 @@ local DEFAULT_OPTS = { -- BEGIN_DEFAULT_OPTS
   system_open = {
     cmd = "",
     args = {},
+  },
+  git = {
+    enable = true,
+    show_on_dirs = true,
+    show_on_open_dirs = true,
+    disable_for_dirs = {},
+    timeout = 400,
   },
   diagnostics = {
     enable = false,
@@ -512,6 +524,11 @@ local DEFAULT_OPTS = { -- BEGIN_DEFAULT_OPTS
       error = "",
     },
   },
+  modified = {
+    enable = false,
+    show_on_dirs = true,
+    show_on_open_dirs = true,
+  },
   filters = {
     git_ignored = true,
     dotfiles = false,
@@ -520,22 +537,14 @@ local DEFAULT_OPTS = { -- BEGIN_DEFAULT_OPTS
     custom = {},
     exclude = {},
   },
+  live_filter = {
+    prefix = "[FILTER]: ",
+    always_show_folders = true,
+  },
   filesystem_watchers = {
     enable = true,
     debounce_delay = 50,
     ignore_dirs = {},
-  },
-  git = {
-    enable = true,
-    show_on_dirs = true,
-    show_on_open_dirs = true,
-    disable_for_dirs = {},
-    timeout = 400,
-  },
-  modified = {
-    enable = false,
-    show_on_dirs = true,
-    show_on_open_dirs = true,
   },
   actions = {
     use_system_clipboard = true,
@@ -577,10 +586,6 @@ local DEFAULT_OPTS = { -- BEGIN_DEFAULT_OPTS
   },
   trash = {
     cmd = "gio trash",
-  },
-  live_filter = {
-    prefix = "[FILTER]: ",
-    always_show_folders = true,
   },
   tab = {
     sync = {
@@ -628,17 +633,35 @@ local FIELD_OVERRIDE_TYPECHECK = {
   width = { string = true, ["function"] = true, number = true, ["table"] = true },
   max = { string = true, ["function"] = true, number = true },
   min = { string = true, ["function"] = true, number = true },
-  remove_keymaps = { boolean = true, table = true },
   on_attach = { ["function"] = true, string = true },
   sorter = { ["function"] = true, string = true },
   root_folder_label = { ["function"] = true, string = true, boolean = true },
   picker = { ["function"] = true, string = true },
 }
 
+local ACCEPTED_STRINGS = {
+  sort = {
+    sorter = { "name", "case_sensitive", "modification_time", "extension", "suffix", "filetype" },
+  },
+  view = {
+    side = { "left", "right" },
+    signcolumn = { "yes", "no", "auto" },
+  },
+  renderer = {
+    highlight_opened_files = { "none", "icon", "name", "all" },
+    highlight_modified = { "none", "icon", "name", "all" },
+    icons = {
+      git_placement = { "before", "after", "signcolumn" },
+      diagnostics_placement = { "before", "after", "signcolumn" },
+      modified_placement = { "before", "after", "signcolumn" },
+    },
+  },
+}
+
 local function validate_options(conf)
   local msg
 
-  local function validate(user, def, prefix)
+  local function validate(user, def, strs, prefix)
     -- only compare tables with contents that are not integer indexed
     if type(user) ~= "table" or type(def) ~= "table" or not next(def) or type(next(def)) == "number" then
       return
@@ -655,6 +678,9 @@ local function validate_options(conf)
           -- option is of the wrong type and is not a function
           invalid =
             string.format("[NvimTree] invalid option: %s%s expected: %s actual: %s", prefix, k, type(def[k]), type(v))
+        elseif type(v) == "string" and strs[k] and not vim.tbl_contains(strs[k], v) then
+          -- option has type `string` but value is not accepted
+          invalid = string.format("[NvimTree] invalid value for field %s%s: '%s'", prefix, k, v)
         end
 
         if invalid then
@@ -665,16 +691,23 @@ local function validate_options(conf)
           end
           user[k] = nil
         else
-          validate(v, def[k], prefix .. k .. ".")
+          validate(v, def[k], strs[k] or {}, prefix .. k .. ".")
         end
       end
     end
   end
 
-  validate(conf, DEFAULT_OPTS, "")
+  validate(conf, DEFAULT_OPTS, ACCEPTED_STRINGS, "")
 
   if msg then
-    vim.notify_once(msg .. " | see :help nvim-tree-setup for available configuration options", vim.log.levels.WARN)
+    vim.notify_once(msg .. " | see :help nvim-tree-opts for available configuration options", vim.log.levels.WARN)
+  end
+end
+
+--- Apply OS specific localisations to DEFAULT_OPTS
+local function localise_default_opts()
+  if utils.is_macos or utils.is_windows then
+    DEFAULT_OPTS.trash.cmd = "trash"
   end
 end
 
@@ -695,6 +728,8 @@ function M.setup(conf)
   end
 
   M.init_root = vim.fn.getcwd()
+
+  localise_default_opts()
 
   legacy.migrate_legacy_options(conf or {})
 
@@ -720,8 +755,6 @@ function M.setup(conf)
     log.line("config", "default config + user")
     log.raw("config", "%s\n", vim.inspect(opts))
   end
-
-  keymap_legacy.generate_legacy_on_attach(opts)
 
   require("nvim-tree.actions").setup(opts)
   require("nvim-tree.keymap").setup(opts)
