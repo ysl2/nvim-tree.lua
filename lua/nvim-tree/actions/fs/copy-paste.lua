@@ -4,6 +4,10 @@ local utils = require "nvim-tree.utils"
 local core = require "nvim-tree.core"
 local events = require "nvim-tree.events"
 local notify = require "nvim-tree.notify"
+local renderer = require "nvim-tree.renderer"
+local reloaders = require "nvim-tree.actions.reloaders"
+
+local HL_POSITION = require("nvim-tree.enum").HL_POSITION
 
 local find_file = require("nvim-tree.actions.finders.find-file").fn
 
@@ -12,10 +16,14 @@ local M = {
 }
 
 local clipboard = {
-  move = {},
+  cut = {},
   copy = {},
 }
 
+---@param source string
+---@param destination string
+---@return boolean
+---@return string|nil
 local function do_copy(source, destination)
   local source_stats, handle
   local success, errmsg
@@ -77,6 +85,12 @@ local function do_copy(source, destination)
   return true
 end
 
+---@param source string
+---@param dest string
+---@param action_type string
+---@param action_fn fun(source: string, dest: string)
+---@return boolean|nil -- success
+---@return string|nil -- error message
 local function do_single_paste(source, dest, action_type, action_fn)
   local dest_stats
   local success, errmsg, errcode
@@ -101,8 +115,14 @@ local function do_single_paste(source, dest, action_type, action_fn)
   end
 
   if dest_stats then
+    local input_opts = {
+      prompt = "Rename to ",
+      default = dest,
+      completion = "dir",
+    }
+
     if source == dest then
-      vim.ui.input({ prompt = "Rename to ", default = dest, completion = "dir" }, function(new_dest)
+      vim.ui.input(input_opts, function(new_dest)
         utils.clear_prompt()
         if new_dest then
           do_single_paste(source, new_dest, action_type, action_fn)
@@ -111,12 +131,12 @@ local function do_single_paste(source, dest, action_type, action_fn)
     else
       local prompt_select = "Overwrite " .. dest .. " ?"
       local prompt_input = prompt_select .. " R(ename)/y/n: "
-      lib.prompt(prompt_input, prompt_select, { "", "y", "n" }, { "Rename", "Yes", "No" }, function(item_short)
+      lib.prompt(prompt_input, prompt_select, { "", "y", "n" }, { "Rename", "Yes", "No" }, "nvimtree_overwrite_rename", function(item_short)
         utils.clear_prompt()
         if item_short == "y" then
           on_process()
         elseif item_short == "" or item_short == "r" then
-          vim.ui.input({ prompt = "Rename to ", default = dest, completion = "dir" }, function(new_dest)
+          vim.ui.input(input_opts, function(new_dest)
             utils.clear_prompt()
             if new_dest then
               do_single_paste(source, new_dest, action_type, action_fn)
@@ -130,40 +150,52 @@ local function do_single_paste(source, dest, action_type, action_fn)
   end
 end
 
-local function add_to_clipboard(node, clip)
+---@param node Node
+---@param clip table
+local function toggle(node, clip)
   if node.name == ".." then
     return
   end
   local notify_node = notify.render_path(node.absolute_path)
 
-  for idx, _node in ipairs(clip) do
-    if _node.absolute_path == node.absolute_path then
-      table.remove(clip, idx)
-      return notify.info(notify_node .. " removed from clipboard.")
-    end
+  if utils.array_remove(clip, node) then
+    notify.info(notify_node .. " removed from clipboard.")
+    return
   end
+
   table.insert(clip, node)
   notify.info(notify_node .. " added to clipboard.")
 end
 
 function M.clear_clipboard()
-  clipboard.move = {}
+  clipboard.cut = {}
   clipboard.copy = {}
   notify.info "Clipboard has been emptied."
+  renderer.draw()
 end
 
+---@param node Node
 function M.copy(node)
-  add_to_clipboard(node, clipboard.copy)
+  utils.array_remove(clipboard.cut, node)
+  toggle(node, clipboard.copy)
+  renderer.draw()
 end
 
+---@param node Node
 function M.cut(node)
-  add_to_clipboard(node, clipboard.move)
+  utils.array_remove(clipboard.copy, node)
+  toggle(node, clipboard.cut)
+  renderer.draw()
 end
 
+---@param node Node
+---@param action_type string
+---@param action_fn fun(source: string, dest: string)
 local function do_paste(node, action_type, action_fn)
   node = lib.get_last_group_node(node)
-  if node.name == ".." then
-    node = core.get_explorer()
+  local explorer = core.get_explorer()
+  if node.name == ".." and explorer then
+    node = explorer
   end
   local clip = clipboard[action_type]
   if #clip == 0 then
@@ -189,10 +221,14 @@ local function do_paste(node, action_type, action_fn)
 
   clipboard[action_type] = {}
   if not M.config.filesystem_watchers.enable then
-    return require("nvim-tree.actions.reloaders.reloaders").reload_explorer()
+    reloaders.reload_explorer()
   end
 end
 
+---@param source string
+---@param destination string
+---@return boolean
+---@return string?
 local function do_cut(source, destination)
   log.line("copy_paste", "do_cut '%s' -> '%s'", source, destination)
 
@@ -212,64 +248,103 @@ local function do_cut(source, destination)
   return true
 end
 
+---@param node Node
 function M.paste(node)
-  if clipboard.move[1] ~= nil then
-    return do_paste(node, "move", do_cut)
+  if clipboard.cut[1] ~= nil then
+    do_paste(node, "cut", do_cut)
+  else
+    do_paste(node, "copy", do_copy)
   end
-
-  return do_paste(node, "copy", do_copy)
 end
 
 function M.print_clipboard()
   local content = {}
-  if #clipboard.move > 0 then
+  if #clipboard.cut > 0 then
     table.insert(content, "Cut")
-    for _, item in pairs(clipboard.move) do
-      table.insert(content, " * " .. (notify.render_path(item.absolute_path)))
+    for _, node in pairs(clipboard.cut) do
+      table.insert(content, " * " .. (notify.render_path(node.absolute_path)))
     end
   end
   if #clipboard.copy > 0 then
     table.insert(content, "Copy")
-    for _, item in pairs(clipboard.copy) do
-      table.insert(content, " * " .. (notify.render_path(item.absolute_path)))
+    for _, node in pairs(clipboard.copy) do
+      table.insert(content, " * " .. (notify.render_path(node.absolute_path)))
     end
   end
 
-  return notify.info(table.concat(content, "\n") .. "\n")
+  notify.info(table.concat(content, "\n") .. "\n")
 end
 
+---@param content string
 local function copy_to_clipboard(content)
+  local clipboard_name
   if M.config.actions.use_system_clipboard == true then
     vim.fn.setreg("+", content)
     vim.fn.setreg('"', content)
-    return notify.info(string.format("Copied %s to system clipboard!", content))
+    clipboard_name = "system"
   else
     vim.fn.setreg('"', content)
     vim.fn.setreg("1", content)
-    return notify.info(string.format("Copied %s to neovim clipboard!", content))
+    clipboard_name = "neovim"
   end
+
+  vim.api.nvim_exec_autocmds("TextYankPost", {})
+  notify.info(string.format("Copied %s to %s clipboard!", content, clipboard_name))
 end
 
+---@param node Node
 function M.copy_filename(node)
-  return copy_to_clipboard(node.name)
+  copy_to_clipboard(node.name)
 end
 
+---@param node Node
 function M.copy_path(node)
   local absolute_path = node.absolute_path
-  local relative_path = utils.path_relative(absolute_path, core.get_cwd())
+  local cwd = core.get_cwd()
+  if cwd == nil then
+    return
+  end
+
+  local relative_path = utils.path_relative(absolute_path, cwd)
   local content = node.nodes ~= nil and utils.path_add_trailing(relative_path) or relative_path
-  return copy_to_clipboard(content)
+  copy_to_clipboard(content)
 end
 
+---@param node Node
 function M.copy_absolute_path(node)
   local absolute_path = node.absolute_path
   local content = node.nodes ~= nil and utils.path_add_trailing(absolute_path) or absolute_path
-  return copy_to_clipboard(content)
+  copy_to_clipboard(content)
+end
+
+--- Clipboard text highlight group and position when highlight_clipboard.
+---@param node Node
+---@return HL_POSITION position none when clipboard empty
+---@return string|nil group only when node present in clipboard
+function M.get_highlight(node)
+  if M.hl_pos == HL_POSITION.none then
+    return HL_POSITION.none, nil
+  end
+
+  for _, n in ipairs(clipboard.cut) do
+    if node == n then
+      return M.hl_pos, "NvimTreeCutHL"
+    end
+  end
+
+  for _, n in ipairs(clipboard.copy) do
+    if node == n then
+      return M.hl_pos, "NvimTreeCopiedHL"
+    end
+  end
+
+  return HL_POSITION.none, nil
 end
 
 function M.setup(opts)
   M.config.filesystem_watchers = opts.filesystem_watchers
   M.config.actions = opts.actions
+  M.hl_pos = HL_POSITION[opts.renderer.highlight_clipboard] or HL_POSITION.none
 end
 
 return M

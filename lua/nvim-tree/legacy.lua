@@ -23,7 +23,7 @@ local function refactored(opts)
   utils.move_missing_val(opts, "trash", "require_confirm", opts, "ui.confirm", "trash", true)
 
   -- 2023/01/15
-  if opts.view and opts.view.adaptive_size ~= nil then
+  if type(opts.view) == "table" and opts.view.adaptive_size ~= nil then
     if opts.view.adaptive_size and type(opts.view.width) ~= "table" then
       local width = opts.view.width
       opts.view.width = {
@@ -40,19 +40,11 @@ local function refactored(opts)
   utils.move_missing_val(opts, "git", "ignore", opts, "filters", "git_ignored", true)
 
   -- 2023/08/26
-  utils.move_missing_val(
-    opts,
-    "renderer.icons",
-    "webdev_colors",
-    opts,
-    "renderer.icons.web_devicons.file",
-    "color",
-    true
-  )
+  utils.move_missing_val(opts, "renderer.icons", "webdev_colors", opts, "renderer.icons.web_devicons.file", "color", true)
 end
 
 local function deprecated(opts)
-  if opts.view and opts.view.hide_root_folder then
+  if type(opts.view) == "table" and opts.view.hide_root_folder then
     notify.info "view.hide_root_folder is deprecated, please set renderer.root_folder_label = false"
   end
 end

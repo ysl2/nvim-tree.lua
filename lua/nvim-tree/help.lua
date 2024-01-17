@@ -19,8 +19,8 @@ local M = {
 }
 
 --- Shorten and normalise a vim command lhs
---- @param lhs string
---- @return string
+---@param lhs string
+---@return string
 local function tidy_lhs(lhs)
   -- nvim_buf_get_keymap replaces leading "<" with "<lt>" e.g. "<lt>CTRL-v>"
   lhs = lhs:gsub("^<lt>", "<")
@@ -43,15 +43,15 @@ end
 
 --- Remove prefix 'nvim-tree: '
 --- Hardcoded to keep default_on_attach simple
---- @param desc string
---- @return string
+---@param desc string
+---@return string
 local function tidy_desc(desc)
   return desc and desc:gsub("^nvim%-tree: ", "") or ""
 end
 
 --- sort vim command lhs roughly as per :help index
---- @param a string
---- @param b string
+---@param a string
+---@param b string
 local function sort_lhs(a, b)
   -- mouse first
   if a:match(PAT_MOUSE) and not b:match(PAT_MOUSE) then
@@ -79,22 +79,34 @@ local function sort_lhs(a, b)
 end
 
 --- Compute all lines for the buffer
---- @return table strings of text
---- @return table arrays of arguments 3-6 for nvim_buf_add_highlight()
---- @return number maximum length of text
+---@return table strings of text
+---@return table arrays of arguments 3-6 for nvim_buf_add_highlight()
+---@return number maximum length of text
 local function compute()
   local head_lhs = "nvim-tree mappings"
-  local head_rhs = "exit: q"
+  local head_rhs1 = "exit: q"
+  local head_rhs2 = string.format("sort by %s: s", M.config.sort_by == "key" and "description" or "keymap")
 
   -- formatted lhs and desc from active keymap
   local mappings = vim.tbl_map(function(map)
     return { lhs = tidy_lhs(map.lhs), desc = tidy_desc(map.desc) }
   end, keymap.get_keymap())
 
-  -- sort roughly by lhs
-  table.sort(mappings, function(a, b)
-    return sort_lhs(a.lhs, b.lhs)
-  end)
+  -- sorter function for mappings
+  local sort_fn
+
+  if M.config.sort_by == "desc" then
+    sort_fn = function(a, b)
+      return a.desc:lower() < b.desc:lower()
+    end
+  else
+    -- by default sort roughly by lhs
+    sort_fn = function(a, b)
+      return sort_lhs(a.lhs, b.lhs)
+    end
+  end
+
+  table.sort(mappings, sort_fn)
 
   -- longest lhs and description
   local max_lhs = 0
@@ -105,12 +117,14 @@ local function compute()
   end
 
   -- increase desc if lines are shorter than the header
-  max_desc = math.max(max_desc, #head_lhs + #head_rhs - max_lhs)
+  max_desc = math.max(max_desc, #head_lhs + #head_rhs1 - max_lhs)
 
   -- header, not padded
   local hl = { { "NvimTreeRootFolder", 0, 0, #head_lhs } }
-  local lines =
-    { ("%s%s%s"):format(head_lhs, string.rep(" ", max_desc + max_lhs - #head_lhs - #head_rhs + 2), head_rhs) }
+  local lines = {
+    head_lhs .. string.rep(" ", max_desc + max_lhs - #head_lhs - #head_rhs1 + 2) .. head_rhs1,
+    string.rep(" ", max_desc + max_lhs - #head_rhs2 + 2) .. head_rhs2,
+  }
   local width = #lines[1]
 
   -- mappings, left padded 1
@@ -122,7 +136,7 @@ local function compute()
     width = math.max(#line, width)
 
     -- highlight lhs
-    table.insert(hl, { "NvimTreeFolderName", i, 1, #l.lhs + 1 })
+    table.insert(hl, { "NvimTreeFolderName", i + 1, 1, #l.lhs + 1 })
   end
 
   return lines, hl, width
@@ -176,13 +190,25 @@ local function open()
   vim.wo[M.winnr].winhl = WIN_HL
   vim.wo[M.winnr].cursorline = M.config.cursorline
 
-  -- quit binding
-  vim.keymap.set(
-    "n",
-    "q",
-    close,
-    { desc = "nvim-tree: exit help", buffer = M.bufnr, noremap = true, silent = true, nowait = true }
-  )
+  local function toggle_sort()
+    M.config.sort_by = (M.config.sort_by == "desc") and "key" or "desc"
+    open()
+  end
+
+  local keymaps = {
+    q = { fn = close, desc = "nvim-tree: exit help" },
+    s = { fn = toggle_sort, desc = "nvim-tree: toggle sorting method" },
+  }
+
+  for k, v in pairs(keymaps) do
+    vim.keymap.set("n", k, v.fn, {
+      desc = v.desc,
+      buffer = M.bufnr,
+      noremap = true,
+      silent = true,
+      nowait = true,
+    })
+  end
 
   -- close window and delete buffer on leave
   vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, {
@@ -202,6 +228,7 @@ end
 
 function M.setup(opts)
   M.config.cursorline = opts.view.cursorline
+  M.config.sort_by = opts.help.sort_by
 end
 
 return M

@@ -5,13 +5,13 @@ local M = {}
 
 local function build_icons_table(i)
   local icons = {
-    staged = { str = i.staged, hl = "NvimTreeGitStaged", ord = 1 },
-    unstaged = { str = i.unstaged, hl = "NvimTreeGitDirty", ord = 2 },
-    renamed = { str = i.renamed, hl = "NvimTreeGitRenamed", ord = 3 },
-    deleted = { str = i.deleted, hl = "NvimTreeGitDeleted", ord = 4 },
-    unmerged = { str = i.unmerged, hl = "NvimTreeGitMerge", ord = 5 },
-    untracked = { str = i.untracked, hl = "NvimTreeGitNew", ord = 6 },
-    ignored = { str = i.ignored, hl = "NvimTreeGitIgnored", ord = 7 },
+    staged = { str = i.staged, hl = { "NvimTreeGitStaged" }, ord = 1 },
+    unstaged = { str = i.unstaged, hl = { "NvimTreeGitDirty" }, ord = 2 },
+    renamed = { str = i.renamed, hl = { "NvimTreeGitRenamed" }, ord = 3 },
+    deleted = { str = i.deleted, hl = { "NvimTreeGitDeleted" }, ord = 4 },
+    unmerged = { str = i.unmerged, hl = { "NvimTreeGitMerge" }, ord = 5 },
+    untracked = { str = i.untracked, hl = { "NvimTreeGitNew" }, ord = 6 },
+    ignored = { str = i.ignored, hl = { "NvimTreeGitIgnored" }, ord = 7 },
   }
   return {
     ["M "] = { icons.staged },
@@ -65,7 +65,7 @@ local function build_hl_table()
     ["MM"] = "NvimTreeFileDirty",
     ["AM"] = "NvimTreeFileDirty",
     dirty = "NvimTreeFileDirty",
-    ["A "] = "NvimTreeFileNew",
+    ["A "] = "NvimTreeFileStaged",
     ["??"] = "NvimTreeFileNew",
     ["AU"] = "NvimTreeFileMerge",
     ["UU"] = "NvimTreeFileMerge",
@@ -94,11 +94,7 @@ end
 local function nil_() end
 
 local function warn_status(git_status)
-  notify.warn(
-    'Unrecognized git state "'
-      .. git_status
-      .. '". Please open up an issue on https://github.com/nvim-tree/nvim-tree.lua/issues with this message.'
-  )
+  notify.warn(string.format("Unrecognized git state '%s'", git_status))
 end
 
 ---@param node table

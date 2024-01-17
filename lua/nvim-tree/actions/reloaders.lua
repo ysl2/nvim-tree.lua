@@ -8,10 +8,13 @@ local Iterator = require "nvim-tree.iterators.node-iterator"
 
 local M = {}
 
+---@param node Explorer|nil
+---@param projects table
+---@param unloaded_bufnr number|nil
 local function refresh_nodes(node, projects, unloaded_bufnr)
   Iterator.builder({ node })
     :applier(function(n)
-      if n.open and n.nodes then
+      if n.nodes then
         local toplevel = git.get_toplevel(n.cwd or n.link_to or n.absolute_path)
         explorer_module.reload(n, projects[toplevel] or {}, unloaded_bufnr)
       end
@@ -22,7 +25,13 @@ local function refresh_nodes(node, projects, unloaded_bufnr)
     :iterate()
 end
 
+---@param parent_node Node|nil
+---@param projects table
 function M.reload_node_status(parent_node, projects)
+  if parent_node == nil then
+    return
+  end
+
   local toplevel = git.get_toplevel(parent_node.absolute_path)
   local status = projects[toplevel] or {}
   for _, node in ipairs(parent_node.nodes) do

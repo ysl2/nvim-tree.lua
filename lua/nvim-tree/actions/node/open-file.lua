@@ -6,6 +6,8 @@ local view = require "nvim-tree.view"
 
 local M = {}
 
+---Get single char from user input
+---@return string
 local function get_user_input_char()
   local c = vim.fn.getchar()
   while type(c) ~= "number" do
@@ -62,13 +64,7 @@ local function pick_win_id()
   end
 
   if #M.window_picker.chars < #selectable then
-    notify.error(
-      string.format(
-        "More windows (%d) than actions.open_file.window_picker.chars (%d) - please add more.",
-        #selectable,
-        #M.window_picker.chars
-      )
-    )
+    notify.error(string.format("More windows (%d) than actions.open_file.window_picker.chars (%d).", #selectable, #M.window_picker.chars))
     return nil
   end
 
@@ -192,7 +188,7 @@ end
 
 local function get_target_winid(mode)
   local target_winid
-  if not M.window_picker.enable or mode == "edit_no_picker" then
+  if not M.window_picker.enable or mode == "edit_no_picker" or mode == "preview_no_picker" then
     target_winid = lib.target_winid
 
     -- first available window
@@ -281,7 +277,7 @@ local function open_in_new_window(filename, mode)
     cmd = string.format("edit %s", fname)
   end
 
-  if mode == "preview" and view.View.float.enable then
+  if (mode == "preview" or mode == "preview_no_picker") and view.View.float.enable then
     -- ignore "WinLeave" autocmd on preview
     -- because the registered "WinLeave"
     -- will kill the floating window immediately
@@ -305,9 +301,11 @@ end
 
 local function edit_in_current_buf(filename)
   require("nvim-tree.view").abandon_current_window()
-  vim.cmd("keepjumps edit " .. vim.fn.fnameescape(filename))
+  vim.cmd("keepalt keepjumps edit " .. vim.fn.fnameescape(filename))
 end
 
+---@param mode string
+---@param filename string
 function M.fn(mode, filename)
   if type(mode) ~= "string" then
     mode = ""
@@ -332,7 +330,7 @@ function M.fn(mode, filename)
   local buf_loaded = is_already_loaded(filename)
 
   local found_win = utils.get_win_buf_from_path(filename)
-  if found_win and mode == "preview" then
+  if found_win and (mode == "preview" or mode == "preview_no_picker") then
     return
   end
 
@@ -347,7 +345,7 @@ function M.fn(mode, filename)
     view.resize()
   end
 
-  if mode == "preview" then
+  if mode == "preview" or mode == "preview_no_picker" then
     return on_preview(buf_loaded)
   end
 

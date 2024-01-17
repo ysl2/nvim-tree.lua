@@ -14,7 +14,13 @@ function M.bulk_move()
     return
   end
 
-  vim.ui.input({ prompt = "Move to: ", default = core.get_cwd(), completion = "dir" }, function(location)
+  local input_opts = {
+    prompt = "Move to: ",
+    default = core.get_cwd(),
+    completion = "dir",
+  }
+
+  vim.ui.input(input_opts, function(location)
     utils.clear_prompt()
     if not location or location == "" then
       return
@@ -34,7 +40,7 @@ function M.bulk_move()
     marks.clear_marks()
 
     if not M.config.filesystem_watchers.enable then
-      require("nvim-tree.actions.reloaders.reloaders").reload_explorer()
+      require("nvim-tree.actions.reloaders").reload_explorer()
     end
   end)
 end

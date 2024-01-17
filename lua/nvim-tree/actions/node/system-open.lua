@@ -3,6 +3,7 @@ local utils = require "nvim-tree.utils"
 
 local M = {}
 
+---@param node Node
 function M.fn(node)
   if #M.config.system_open.cmd == 0 then
     require("nvim-tree.utils").notify.warn "Cannot open file with system application. Unrecognized platform."
@@ -16,18 +17,22 @@ function M.fn(node)
     stderr = vim.loop.new_pipe(false),
   }
   table.insert(process.args, node.link_to or node.absolute_path)
-  process.handle, process.pid = vim.loop.spawn(
-    process.cmd,
-    { args = process.args, stdio = { nil, nil, process.stderr }, detached = true },
-    function(code)
-      process.stderr:read_stop()
-      process.stderr:close()
-      process.handle:close()
-      if code ~= 0 then
-        notify.warn(string.format("system_open failed with return code %d: %s", code, process.errors))
-      end
+
+  local opts = {
+    args = process.args,
+    stdio = { nil, nil, process.stderr },
+    detached = true,
+  }
+
+  process.handle, process.pid = vim.loop.spawn(process.cmd, opts, function(code)
+    process.stderr:read_stop()
+    process.stderr:close()
+    process.handle:close()
+    if code ~= 0 then
+      notify.warn(string.format("system_open failed with return code %d: %s", code, process.errors))
     end
-  )
+  end)
+
   table.remove(process.args)
   if not process.handle then
     notify.warn(string.format("system_open failed to spawn command '%s': %s", process.cmd, process.pid))

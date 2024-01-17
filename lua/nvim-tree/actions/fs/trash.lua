@@ -1,5 +1,6 @@
 local lib = require "nvim-tree.lib"
 local notify = require "nvim-tree.notify"
+local reloaders = require "nvim-tree.actions.reloaders"
 
 local M = {
   config = {},
@@ -8,6 +9,7 @@ local M = {
 local utils = require "nvim-tree.utils"
 local events = require "nvim-tree.events"
 
+---@param absolute_path string
 local function clear_buffer(absolute_path)
   local bufs = vim.fn.getbufinfo { bufloaded = 1, buflisted = 1 }
   for _, buf in pairs(bufs) do
@@ -24,11 +26,8 @@ local function clear_buffer(absolute_path)
   end
 end
 
-function M.fn(node)
-  if node.name == ".." then
-    return
-  end
-
+---@param node Node
+function M.remove(node)
   local binary = M.config.trash.cmd:gsub(" .*$", "")
   if vim.fn.executable(binary) == 0 then
     notify.warn(string.format("trash.cmd '%s' is not an executable.", M.config.trash.cmd))
@@ -53,40 +52,60 @@ function M.fn(node)
     end
   end
 
+  if node.nodes ~= nil and not node.link_to then
+    trash_path(function(_, rc)
+      if rc ~= 0 then
+        notify.warn("trash failed: " .. err_msg .. "; please see :help nvim-tree.trash")
+        return
+      end
+      events._dispatch_folder_removed(node.absolute_path)
+      if not M.config.filesystem_watchers.enable then
+        reloaders.reload_explorer()
+      end
+    end)
+  else
+    events._dispatch_will_remove_file(node.absolute_path)
+    trash_path(function(_, rc)
+      if rc ~= 0 then
+        notify.warn("trash failed: " .. err_msg .. "; please see :help nvim-tree.trash")
+        return
+      end
+      events._dispatch_file_removed(node.absolute_path)
+      clear_buffer(node.absolute_path)
+      if not M.config.filesystem_watchers.enable then
+        reloaders.reload_explorer()
+      end
+    end)
+  end
+end
+
+---@param node Node
+function M.fn(node)
+  if node.name == ".." then
+    return
+  end
+
   local function do_trash()
-    if node.nodes ~= nil and not node.link_to then
-      trash_path(function(_, rc)
-        if rc ~= 0 then
-          notify.warn("trash failed: " .. err_msg .. "; please see :help nvim-tree.trash")
-          return
-        end
-        events._dispatch_folder_removed(node.absolute_path)
-        if not M.config.filesystem_watchers.enable then
-          require("nvim-tree.actions.reloaders.reloaders").reload_explorer()
-        end
-      end)
-    else
-      events._dispatch_will_remove_file(node.absolute_path)
-      trash_path(function(_, rc)
-        if rc ~= 0 then
-          notify.warn("trash failed: " .. err_msg .. "; please see :help nvim-tree.trash")
-          return
-        end
-        events._dispatch_file_removed(node.absolute_path)
-        clear_buffer(node.absolute_path)
-        if not M.config.filesystem_watchers.enable then
-          require("nvim-tree.actions.reloaders.reloaders").reload_explorer()
-        end
-      end)
-    end
+    M.remove(node)
   end
 
   if M.config.ui.confirm.trash then
-    local prompt_select = "Trash " .. node.name .. " ?"
-    local prompt_input = prompt_select .. " y/N: "
-    lib.prompt(prompt_input, prompt_select, { "", "y" }, { "No", "Yes" }, function(item_short)
+    local prompt_select = "Trash " .. node.name .. "?"
+    local prompt_input, items_short, items_long
+
+    if M.config.ui.confirm.default_yes then
+      prompt_input = prompt_select .. " Y/n: "
+      items_short = { "", "n" }
+      items_long = { "Yes", "No" }
+    else
+      prompt_input = prompt_select .. " y/N: "
+      items_short = { "", "y" }
+      items_long = { "No", "Yes" }
+    end
+
+    lib.prompt(prompt_input, prompt_select, items_short, items_long, "nvimtree_trash", function(item_short)
       utils.clear_prompt()
-      if item_short == "y" then
+      if item_short == "y" or item_short == (M.config.ui.confirm.default_yes and "") then
         do_trash()
       end
     end)

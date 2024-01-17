@@ -1,7 +1,7 @@
 local lib = require "nvim-tree.lib"
 local utils = require "nvim-tree.utils"
 local filters = require "nvim-tree.explorer.filters"
-local reloaders = require "nvim-tree.actions.reloaders.reloaders"
+local reloaders = require "nvim-tree.actions.reloaders"
 
 local M = {}
 
@@ -28,6 +28,11 @@ end
 
 function M.no_buffer()
   filters.config.filter_no_buffer = not filters.config.filter_no_buffer
+  reload()
+end
+
+function M.no_bookmark()
+  filters.config.filter_no_bookmark = not filters.config.filter_no_bookmark
   reload()
 end
 

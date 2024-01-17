@@ -10,8 +10,14 @@ local function redraw()
   require("nvim-tree.renderer").draw()
 end
 
+---@param node_ Node|nil
 local function reset_filter(node_)
-  node_ = node_ or TreeExplorer
+  node_ = node_ or require("nvim-tree.core").get_explorer()
+
+  if node_ == nil then
+    return
+  end
+
   Iterator.builder(node_.nodes)
     :hidden()
     :applier(function(node)
@@ -37,7 +43,8 @@ local function remove_overlay()
     })
   end
 
-  vim.api.nvim_win_close(overlay_winnr, { force = true })
+  vim.api.nvim_win_close(overlay_winnr, true)
+  vim.api.nvim_buf_delete(overlay_bufnr, { force = true })
   overlay_bufnr = nil
   overlay_winnr = nil
 
@@ -46,12 +53,15 @@ local function remove_overlay()
   end
 end
 
+---@param node Node
+---@return boolean
 local function matches(node)
   local path = node.absolute_path
   local name = vim.fn.fnamemodify(path, ":t")
   return vim.regex(M.filter):match_str(name) ~= nil
 end
 
+---@param node_ Node|nil
 function M.apply_filter(node_)
   if not M.filter or M.filter == "" then
     reset_filter(node_)
@@ -78,7 +88,7 @@ function M.apply_filter(node_)
     node.hidden = not (has_nodes or (ok and is_match))
   end
 
-  iterate(node_ or TreeExplorer)
+  iterate(node_ or require("nvim-tree.core").get_explorer())
 end
 
 local function record_char()
@@ -104,8 +114,18 @@ local function configure_buffer_overlay()
   vim.api.nvim_buf_set_keymap(overlay_bufnr, "i", "<CR>", "<cmd>stopinsert<CR>", {})
 end
 
+---@return integer
+local function calculate_overlay_win_width()
+  local wininfo = vim.fn.getwininfo(view.get_winnr())[1]
+
+  if wininfo then
+    return wininfo.width - wininfo.textoff - #M.prefix
+  end
+
+  return 20
+end
+
 local function create_overlay()
-  local min_width = 20
   if view.View.float.enable then
     -- don't close nvim-tree float when focus is changed to filter window
     vim.api.nvim_clear_autocmds {
@@ -113,8 +133,6 @@ local function create_overlay()
       pattern = "NvimTree_*",
       group = vim.api.nvim_create_augroup("NvimTree", { clear = false }),
     }
-
-    min_width = min_width - 2
   end
 
   configure_buffer_overlay()
@@ -122,7 +140,7 @@ local function create_overlay()
     col = 1,
     row = 0,
     relative = "cursor",
-    width = math.max(min_width, vim.api.nvim_win_get_width(view.get_winnr()) - #M.prefix - 2),
+    width = calculate_overlay_win_width(),
     height = 1,
     border = "none",
     style = "minimal",

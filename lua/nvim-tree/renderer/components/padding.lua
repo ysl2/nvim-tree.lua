@@ -30,9 +30,7 @@ local function get_padding_indent_markers(depth, idx, nodes_number, markers, wit
     for i = 1, depth do
       local glyph
       if idx == nodes_number and i == depth then
-        local bottom_width = M.config.indent_width
-          - 2
-          + (with_arrows and not inline_arrows and has_folder_sibling and 2 or 0)
+        local bottom_width = M.config.indent_width - 2 + (with_arrows and not inline_arrows and has_folder_sibling and 2 or 0)
         glyph = M.config.indent_markers.icons.corner
           .. string.rep(M.config.indent_markers.icons.bottom, bottom_width)
           .. (M.config.indent_width > 1 and " " or "")
@@ -78,7 +76,7 @@ function M.get_indent_markers(depth, idx, nodes_number, node, markers)
     str = str .. string.rep(" ", depth * indent_width)
   end
 
-  return { str = str, hl = "NvimTreeIndentMarker" }
+  return { str = str, hl = { "NvimTreeIndentMarker" } }
 end
 
 ---@param node table
@@ -104,7 +102,7 @@ function M.get_arrows(node)
     str = "  "
   end
 
-  return { str = str, hl = hl }
+  return { str = str, hl = { hl } }
 end
 
 function M.setup(opts)
